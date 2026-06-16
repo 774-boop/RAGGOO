@@ -1,0 +1,31 @@
+node_modules/
+.next/
+.env.local
+
+# Keep the compact retrieval indexes in Git for demo deployments.
+# They are required by /api/chat at runtime.
+!vectorstore/
+!vectorstore/**
+!visualstore/
+!visualstore/**
+
+# Raw source datasets are large and are not needed at runtime when the
+# vectorstore/visualstore indexes are committed.
+bottoms/
+sep2022/
+oct2022/
+nov2022/
+dec2022/
+jan2023/
+feb2023/
+data/raw/
+updated_dataset.csv
+ssense_dataset.csv
+
+data/processed/*
+!data/processed/.gitkeep
+data/feedback/*
+!data/feedback/.gitkeep
+deliverables/
+tsconfig.tsbuildinfo
+*.log
