@@ -215,11 +215,17 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-      const data = (await response.json()) as {
+      const responseText = await response.text();
+      const data = JSON.parse(responseText || "{}") as {
         answer?: string;
         error?: string;
         visualAnalysis?: VisualAnalysis | null;
       };
+      if (!response.ok) {
+        throw new Error(
+          data.error || responseText || `Chat request failed (${response.status})`,
+        );
+      }
       setMessages((current) => [
         ...current,
         {
@@ -228,10 +234,16 @@ export default function Home() {
           visualAnalysis: data.visualAnalysis,
         },
       ]);
-    } catch {
+    } catch (error) {
       setMessages((current) => [
         ...current,
-        { role: "assistant", content: "The chat service is unavailable." },
+        {
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? `Chat error: ${error.message}`
+              : "The chat service is unavailable.",
+        },
       ]);
     } finally {
       setLoading(false);
