@@ -2,7 +2,6 @@ import "server-only";
 
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
-import { IndexFlatIP } from "faiss-node";
 
 export type VisualMetadata = {
   brand: string;
@@ -23,9 +22,16 @@ type ImageFeatureExtractor = (
   options?: { normalize?: boolean },
 ) => Promise<{ dims: number[]; tolist(): number[] | number[][] }>;
 
+type SearchIndex = {
+  search(vector: number[], topK: number): {
+    labels: number[];
+    distances: number[];
+  };
+};
+
 let extractorPromise: Promise<ImageFeatureExtractor> | null = null;
 let indexPromise: Promise<{
-  index: IndexFlatIP;
+  index: SearchIndex;
   metadata: VisualMetadata[];
 }> | null = null;
 
@@ -50,7 +56,10 @@ async function getExtractor() {
   return extractorPromise;
 }
 
-async function loadIndex() {
+async function loadIndex(): Promise<{
+  index: SearchIndex;
+  metadata: VisualMetadata[];
+}> {
   const directory = path.join(process.cwd(), "visualstore");
   const indexPath = path.join(directory, "visual.index");
   const metadataPath = path.join(directory, "metadata.json");
@@ -58,8 +67,9 @@ async function loadIndex() {
   const metadata = JSON.parse(
     await readFile(metadataPath, "utf8"),
   ) as VisualMetadata[];
+  const { IndexFlatIP } = await import("faiss-node");
   return {
-    index: IndexFlatIP.read(indexPath),
+    index: IndexFlatIP.read(indexPath) as SearchIndex,
     metadata,
   };
 }
@@ -82,11 +92,15 @@ export async function searchSimilarImages(
   );
   if (searchableImages.length === 0 || !(await visualIndexExists())) return [];
 
-  indexPromise ??= loadIndex();
-  const [{ index, metadata }, extractor] = await Promise.all([
-    indexPromise,
-    getExtractor(),
-  ]);
+  let loadedIndex: Awaited<ReturnType<typeof loadIndex>>;
+  try {
+    indexPromise ??= loadIndex();
+    loadedIndex = await indexPromise;
+  } catch {
+    return [];
+  }
+  const { index, metadata } = loadedIndex;
+  const extractor = await getExtractor();
   const blobs = searchableImages.map(
     (image) =>
       new Blob([Uint8Array.from(image.buffer)], { type: image.mimeType }),

@@ -1,28 +1,61 @@
 import "server-only";
 
 import path from "node:path";
-import { access } from "node:fs/promises";
-import { FaissStore } from "@langchain/community/vectorstores/faiss";
+import { access, readFile } from "node:fs/promises";
+import { Document } from "@langchain/core/documents";
 import { LocalEmbeddings } from "@/lib/local-embeddings";
 
-let storePromise: Promise<FaissStore> | null = null;
+type StoredDocument = {
+  pageContent: string;
+  metadata: Record<string, unknown>;
+  embedding: number[];
+};
+
+let storePromise: Promise<StoredDocument[]> | null = null;
+
+function similarity(left: number[], right: number[]) {
+  let score = 0;
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    score += left[index] * right[index];
+  }
+  return score;
+}
 
 async function loadStore() {
   const vectorDirectory = path.join(process.cwd(), "vectorstore");
+  const documentsPath = path.join(vectorDirectory, "documents.json");
   try {
-    await access(path.join(vectorDirectory, "faiss.index"));
+    await access(documentsPath);
   } catch {
-    throw new Error("FAISS index not found. Run `npm run build:vectors` first.");
+    throw new Error(
+      "Portable vector documents not found. Run `npm run build:vectors` first.",
+    );
   }
 
-  const embeddings = new LocalEmbeddings();
-  return FaissStore.load(vectorDirectory, embeddings);
+  return JSON.parse(await readFile(documentsPath, "utf8")) as StoredDocument[];
 }
 
 export async function retrieveContext(question: string, topK = 8) {
   storePromise ??= loadStore();
-  const store = await storePromise;
-  const documents = await store.similaritySearch(question, topK);
+  const [store, queryEmbedding] = await Promise.all([
+    storePromise,
+    new LocalEmbeddings().embedQuery(question),
+  ]);
+  const documents = store
+    .map((document) => ({
+      document,
+      score: similarity(queryEmbedding, document.embedding),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, topK)
+    .map(
+      ({ document }) =>
+        new Document({
+          pageContent: document.pageContent,
+          metadata: document.metadata,
+        }),
+    );
 
   return {
     documents,

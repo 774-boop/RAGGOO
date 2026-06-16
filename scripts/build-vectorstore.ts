@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Document } from "@langchain/core/documents";
 import { FaissStore } from "@langchain/community/vectorstores/faiss";
@@ -174,6 +174,9 @@ async function main() {
 
   console.log(`Embedding ${documents.length} aggregated documents...`);
   const embeddings = new LocalEmbeddings();
+  const documentVectors = await embeddings.embedDocuments(
+    documents.map((document) => document.pageContent),
+  );
   const batches = chunkDocuments(documents, 100);
   const [firstBatch, ...remainingBatches] = batches;
   const store = await FaissStore.fromDocuments(firstBatch, embeddings);
@@ -187,6 +190,17 @@ async function main() {
   await rm(vectorDirectory, { recursive: true, force: true });
   await mkdir(vectorDirectory, { recursive: true });
   await store.save(vectorDirectory);
+  await writeFile(
+    path.join(vectorDirectory, "documents.json"),
+    JSON.stringify(
+      documents.map((document, index) => ({
+        pageContent: document.pageContent,
+        metadata: document.metadata,
+        embedding: documentVectors[index],
+      })),
+    ),
+    "utf8",
+  );
   console.log(`Saved FAISS index to ${vectorDirectory}`);
 }
 
