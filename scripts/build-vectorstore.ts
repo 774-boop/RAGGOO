@@ -1,7 +1,6 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Document } from "@langchain/core/documents";
-import { FaissStore } from "@langchain/community/vectorstores/faiss";
 import { parse } from "csv-parse/sync";
 import { loadEnvConfig } from "@next/env";
 import { LocalEmbeddings } from "../lib/local-embeddings";
@@ -142,14 +141,6 @@ function createConditionDocuments(rows: CsvRow[]) {
   });
 }
 
-function chunkDocuments(documents: Document[], size: number) {
-  const chunks: Document[][] = [];
-  for (let index = 0; index < documents.length; index += size) {
-    chunks.push(documents.slice(index, index + size));
-  }
-  return chunks;
-}
-
 async function ensureProcessedData() {
   try {
     await access(path.join(processedDirectory, "resale_products.csv"));
@@ -177,19 +168,9 @@ async function main() {
   const documentVectors = await embeddings.embedDocuments(
     documents.map((document) => document.pageContent),
   );
-  const batches = chunkDocuments(documents, 100);
-  const [firstBatch, ...remainingBatches] = batches;
-  const store = await FaissStore.fromDocuments(firstBatch, embeddings);
-
-  console.log(`Embedded batch 1/${batches.length}`);
-  for (const [index, batch] of remainingBatches.entries()) {
-    await store.addDocuments(batch);
-    console.log(`Embedded batch ${index + 2}/${batches.length}`);
-  }
 
   await rm(vectorDirectory, { recursive: true, force: true });
   await mkdir(vectorDirectory, { recursive: true });
-  await store.save(vectorDirectory);
   await writeFile(
     path.join(vectorDirectory, "documents.json"),
     JSON.stringify(
@@ -201,7 +182,7 @@ async function main() {
     ),
     "utf8",
   );
-  console.log(`Saved FAISS index to ${vectorDirectory}`);
+  console.log(`Saved portable vector documents to ${vectorDirectory}`);
 }
 
 main().catch((error) => {

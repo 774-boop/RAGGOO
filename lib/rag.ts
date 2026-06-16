@@ -3,22 +3,57 @@ import "server-only";
 import path from "node:path";
 import { access, readFile } from "node:fs/promises";
 import { Document } from "@langchain/core/documents";
-import { LocalEmbeddings } from "@/lib/local-embeddings";
 
 type StoredDocument = {
   pageContent: string;
   metadata: Record<string, unknown>;
-  embedding: number[];
+  embedding?: number[];
 };
 
 let storePromise: Promise<StoredDocument[]> | null = null;
 
-function similarity(left: number[], right: number[]) {
+const stopWords = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "for",
+  "from",
+  "how",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "the",
+  "this",
+  "to",
+  "what",
+  "with",
+]);
+
+function tokenize(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !stopWords.has(token));
+}
+
+function keywordScore(questionTokens: string[], document: StoredDocument) {
+  const content = document.pageContent.toLowerCase();
+  const metadata = Object.values(document.metadata).join(" ").toLowerCase();
   let score = 0;
-  const length = Math.min(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    score += left[index] * right[index];
+
+  for (const token of questionTokens) {
+    if (metadata.includes(token)) score += 4;
+    if (content.includes(token)) score += 1;
   }
+
   return score;
 }
 
@@ -38,14 +73,12 @@ async function loadStore() {
 
 export async function retrieveContext(question: string, topK = 8) {
   storePromise ??= loadStore();
-  const [store, queryEmbedding] = await Promise.all([
-    storePromise,
-    new LocalEmbeddings().embedQuery(question),
-  ]);
+  const store = await storePromise;
+  const questionTokens = tokenize(question);
   const documents = store
     .map((document) => ({
       document,
-      score: similarity(queryEmbedding, document.embedding),
+      score: keywordScore(questionTokens, document),
     }))
     .sort((left, right) => right.score - left.score)
     .slice(0, topK)
